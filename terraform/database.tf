@@ -1,4 +1,6 @@
 resource "aws_dynamodb_table" "orders" {
+  #checkov:skip=CKV_AWS_28:PITR se habilita solo en prod, mas abajo en este mismo recurso. Checkov evalua el literal y no la condicion.
+  #checkov:skip=CKV_AWS_119:El cifrado usa la clave administrada por AWS. Una CMK propia cuesta un dolar por mes y aca no hay requisito de rotacion propia ni de auditoria por clave.
   name = "${local.name_prefix}-orders"
 
   # Bajo demanda y no capacidad provisionada: el trafico de eventos es a rafagas y no hay

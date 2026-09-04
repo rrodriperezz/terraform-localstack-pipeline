@@ -16,11 +16,18 @@ data "archive_file" "processor" {
 # primer invoke, nace con retencion infinita, queda fuera del estado de Terraform y el
 # destroy lo deja huerfano acumulando costo de almacenamiento para siempre.
 resource "aws_cloudwatch_log_group" "processor" {
+  #checkov:skip=CKV_AWS_158:Los logs nunca incluyen datos de cliente, y una CMK para cifrarlos agrega costo fijo sin reducir ningun riesgo real.
+  #checkov:skip=CKV_AWS_338:Catorce dias es deliberado y sale de una variable. Guardar doce meses de logs de un pipeline de eventos es gasto puro.
   name              = local.log_group_name
   retention_in_days = var.log_retention_days
 }
 
 resource "aws_lambda_function" "processor" {
+  #checkov:skip=CKV_AWS_116:El destino de fallo es la DLQ de SQS. La DLQ a nivel de funcion solo aplica a invocaciones asincronicas, y esta se invoca desde un event source mapping.
+  #checkov:skip=CKV_AWS_117:La funcion solo habla con APIs de AWS. Meterla en una VPC exigiria NAT o endpoints de interfaz, que cuestan mas que todo el resto del pipeline junto.
+  #checkov:skip=CKV_AWS_173:Las variables de entorno son un nombre de tabla y un ARN, ambos publicos dentro de la cuenta. No hay secretos que cifrar.
+  #checkov:skip=CKV_AWS_272:La firma de codigo necesita un perfil de AWS Signer y una cadena de build reproducible. Queda fuera del alcance declarado.
+  #checkov:skip=CKV_AWS_50:El pipeline tiene un solo salto y la observabilidad va por logs JSON y alarmas. X-Ray agregaria costo por traza sin responder ninguna pregunta que hoy no se pueda responder.
   function_name = local.function_name
   role          = aws_iam_role.processor.arn
 
@@ -35,6 +42,11 @@ resource "aws_lambda_function" "processor" {
 
   memory_size = var.lambda_memory_mb
   timeout     = var.lambda_timeout_seconds
+
+  # Techo de concurrencia en prod: acota cuantas escrituras simultaneas puede recibir
+  # DynamoDB y evita que un pico de eventos se lleve toda la concurrencia de la cuenta.
+  # En local queda sin reservar, porque reservar cupo con un solo consumidor no aporta.
+  reserved_concurrent_executions = var.environment == "prod" ? 20 : -1
 
   environment {
     variables = {
