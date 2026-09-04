@@ -1,0 +1,6 @@
+# El repositorio se escribe en Windows pero corre en runners Linux y dentro de
+# contenedores. Un CRLF en el hook o en el Makefile los rompe con un error que no
+# menciona el fin de linea, asi que se normaliza todo a LF en el arbol de trabajo.
+* text=auto eol=lf
+*.png binary
+*.zip binary
