@@ -1,0 +1,150 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  TERRAFORM_VERSION: "1.9.8"
+  PYTHON_VERSION: "3.12"
+  TFVARS: environments/local.tfvars
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: formato de terraform
+        run: terraform fmt -check -recursive
+
+      - name: init sin backend
+        working-directory: terraform
+        run: terraform init -backend=false -input=false
+
+      - name: validate
+        working-directory: terraform
+        run: terraform validate
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: ruff
+        run: |
+          pip install ruff==0.7.2
+          ruff check src/ tests/
+
+      # Se instala la version exacta en vez de usar la action oficial, que resuelve la
+      # ultima disponible: un check nuevo publicado un martes rompe CI sin que nadie haya
+      # tocado el repositorio. El fallo duro es el comportamiento por defecto del CLI.
+      - name: checkov
+        run: |
+          pip install checkov==3.2.334
+          checkov --directory terraform --framework terraform --compact
+
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: dependencias de prueba
+        run: pip install -r tests/requirements.txt
+
+      # No necesita LocalStack ni Terraform, asi que corre en paralelo con lint y deja la
+      # primera evidencia de que algo se rompio en menos de un minuto.
+      - name: pruebas unitarias
+        run: pytest tests/test_handler.py -v
+
+  integration:
+    needs: [lint, unit]
+    runs-on: ubuntu-latest
+
+    services:
+      localstack:
+        image: localstack/localstack:3.8
+        ports:
+          - 4566:4566
+        env:
+          SERVICES: events,sqs,lambda,dynamodb,sns,iam,logs,cloudwatch,sts
+          DEBUG: "0"
+          LAMBDA_RUNTIME_ENVIRONMENT_TIMEOUT: "120"
+        volumes:
+          # LocalStack ejecuta cada invocacion de la funcion como un contenedor aparte,
+          # asi que necesita el demonio de Docker del runner.
+          - /var/run/docker.sock:/var/run/docker.sock
+        options: >-
+          --health-cmd "curl -sf http://localhost:4566/_localstack/health || exit 1"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+          --health-start-period 15s
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: dependencias de prueba
+        run: pip install -r tests/requirements.txt
+
+      - name: init
+        working-directory: terraform
+        run: terraform init -input=false
+
+      - name: apply
+        working-directory: terraform
+        run: terraform apply -auto-approve -input=false -var-file=${{ env.TFVARS }}
+
+      - name: pruebas de integracion
+        run: pytest tests/test_integration.py -v
+
+      # Siempre, incluso si las pruebas fallan: deja el entorno en el mismo estado en el
+      # que lo encontro y verifica de paso que el destroy funciona.
+      - name: destroy
+        if: always()
+        working-directory: terraform
+        run: terraform destroy -auto-approve -input=false -var-file=${{ env.TFVARS }}
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Gitleaks revisa el historial completo, no el arbol de trabajo: una credencial
+          # borrada en un commit posterior sigue estando en el repositorio.
+          fetch-depth: 0
+
+      - name: gitleaks
+        run: |
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.21.2 \
+            detect --source=/repo --redact --no-banner --verbose
+
+      - name: trivy
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
