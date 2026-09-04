@@ -1,0 +1,25 @@
+services:
+  localstack:
+    image: localstack/localstack:3.8
+    container_name: order-events-localstack
+    ports:
+      - "4566:4566"
+    environment:
+      SERVICES: events,sqs,lambda,dynamodb,sns,iam,logs,cloudwatch,sts
+      DEBUG: "0"
+      # LocalStack no ejecuta la funcion en su propio proceso: por cada invocacion lanza
+      # un contenedor con la imagen del runtime. Este valor es cuanto lo mantiene vivo
+      # despues de terminar, para que la segunda invocacion no vuelva a pagar el arranque.
+      LAMBDA_RUNTIME_ENVIRONMENT_TIMEOUT: "120"
+    volumes:
+      # Consecuencia de lo anterior: necesita hablar con el demonio de Docker del host
+      # para poder crear esos contenedores. Sin este montaje, toda invocacion falla.
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "curl -sf http://localhost:4566/_localstack/health || exit 1"
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
