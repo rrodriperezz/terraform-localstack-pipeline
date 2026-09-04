@@ -1,0 +1,42 @@
+# Estado de Terraform: nunca se versiona. Contiene valores resueltos de todos los
+# recursos y en un backend real seria informacion sensible.
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+.terraform/
+.terraform.lock.hcl
+crash.log
+crash.*.log
+
+# Artefacto que genera archive_file en cada apply.
+terraform/.build/
+*.zip
+
+# Los tfvars del repo estan versionados a proposito (no traen secretos).
+# Cualquier otro queda fuera.
+*.auto.tfvars
+terraform/*.tfvars
+!terraform/environments/*.tfvars
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Notas de trabajo y la especificacion de construccion: material de escritorio,
+# no forma parte del entregable. El README y docs/ si se versionan.
+/*.md
+!/README.md
+importante.txt
+
+# Sistema operativo y editores
+Thumbs.db
+Desktop.ini
+.DS_Store
+.idea/
+.vscode/
