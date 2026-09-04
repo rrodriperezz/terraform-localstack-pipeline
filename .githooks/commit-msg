@@ -1,0 +1,4 @@
+#!/bin/sh
+# El historial documenta el cambio, no la herramienta con la que se escribio. Los
+# trailers de atribucion se agregan solos y ensucian git log sin aportar nada.
+sed -i -E '/^(Co-Authored-By|Co-authored-by):/d; /Generated with/d' "$1"
