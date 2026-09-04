@@ -1,0 +1,7 @@
+line-length = 100
+target-version = "py312"
+
+[lint]
+# E y F son el nucleo de pyflakes y pycodestyle, I ordena los imports, UP moderniza
+# sintaxis heredada y B atrapa los errores logicos tipicos de Python. Nada ignorado.
+select = ["E", "F", "I", "UP", "B"]
