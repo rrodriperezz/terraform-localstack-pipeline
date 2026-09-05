@@ -18,17 +18,19 @@ provider "aws" {
   dynamic "endpoints" {
     for_each = var.use_localstack ? [1] : []
 
+    # events y logs son los nombres canonicos. cloudwatchevents y cloudwatchlogs son
+    # alias historicos de los mismos servicios: declarar ambos hace que el proveedor
+    # avise que la combinacion es invalida, y a partir de la version 6 sera un error.
     content {
-      cloudwatch       = var.localstack_endpoint
-      cloudwatchevents = var.localstack_endpoint
-      cloudwatchlogs   = var.localstack_endpoint
-      dynamodb         = var.localstack_endpoint
-      events           = var.localstack_endpoint
-      iam              = var.localstack_endpoint
-      lambda           = var.localstack_endpoint
-      sns              = var.localstack_endpoint
-      sqs              = var.localstack_endpoint
-      sts              = var.localstack_endpoint
+      cloudwatch = var.localstack_endpoint
+      dynamodb   = var.localstack_endpoint
+      events     = var.localstack_endpoint
+      iam        = var.localstack_endpoint
+      lambda     = var.localstack_endpoint
+      logs       = var.localstack_endpoint
+      sns        = var.localstack_endpoint
+      sqs        = var.localstack_endpoint
+      sts        = var.localstack_endpoint
     }
   }
 
