@@ -28,10 +28,10 @@ venv/
 .coverage
 htmlcov/
 
-# Notas de trabajo y la especificacion de construccion: material de escritorio,
-# no forma parte del entregable. El README y docs/ si se versionan.
-/*.md
-!/README.md
+# La documentacion en markdown se mantiene fuera del repositorio por decision
+# explicita: notas de trabajo, especificacion de construccion, README y docs/ viven
+# solo en la maquina de desarrollo.
+*.md
 importante.txt
 
 # Sistema operativo y editores
