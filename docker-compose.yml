@@ -5,7 +5,15 @@ services:
     ports:
       - "4566:4566"
     environment:
-      SERVICES: events,sqs,lambda,dynamodb,sns,iam,logs,cloudwatch,sts
+      # kms esta en la lista aunque no haya ningun recurso de KMS en el codigo: la
+      # tabla pide cifrado en reposo y DynamoDB resuelve eso pidiendole una clave a
+      # KMS. Sin el servicio arriba, CreateTable crea la tabla y despues devuelve 500,
+      # el proveedor reintenta y el segundo intento falla con ResourceInUseException.
+      SERVICES: events,sqs,lambda,dynamodb,sns,iam,logs,cloudwatch,sts,kms
+      # Las URL de cola por defecto usan el dominio localhost.localstack.cloud, que
+      # obliga a una resolucion DNS externa por cada operacion. En un entorno sin
+      # salida a internet eso son 25 segundos de timeout por llamada.
+      SQS_ENDPOINT_STRATEGY: "off"
       DEBUG: "0"
       # LocalStack no ejecuta la funcion en su propio proceso: por cada invocacion lanza
       # un contenedor con la imagen del runtime. Este valor es cuanto lo mantiene vivo
