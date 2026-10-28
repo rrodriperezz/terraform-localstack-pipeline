@@ -28,10 +28,10 @@ venv/
 .coverage
 htmlcov/
 
-# La documentacion en markdown se mantiene fuera del repositorio por decision
-# explicita: notas de trabajo, especificacion de construccion, README y docs/ viven
-# solo en la maquina de desarrollo.
+# Las notas de trabajo en markdown quedan fuera del repositorio; el README es la
+# excepcion.
 *.md
+!README.md
 importante.txt
 
 # Sistema operativo y editores
