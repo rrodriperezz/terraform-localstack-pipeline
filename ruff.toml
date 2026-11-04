@@ -2,11 +2,11 @@ line-length = 100
 target-version = "py312"
 
 [lint]
-# E y F son el nucleo de pyflakes y pycodestyle, I ordena los imports, UP moderniza
-# sintaxis heredada y B atrapa los errores logicos tipicos de Python. Nada ignorado.
+# E and F are the core of pyflakes and pycodestyle, I sorts imports, UP modernizes
+# legacy syntax and B catches typical Python logic bugs. Nothing ignored.
 select = ["E", "F", "I", "UP", "B"]
 
 [lint.isort]
-# El handler se importa por nombre pelado porque en el zip queda en la raiz. Sin esto
-# ruff lo toma por una dependencia externa y lo mezcla con boto3 y pytest.
+# The handler is imported by its bare name because it sits at the zip root. Without this
+# ruff treats it as a third-party dependency and groups it with boto3 and pytest.
 known-first-party = ["handler"]

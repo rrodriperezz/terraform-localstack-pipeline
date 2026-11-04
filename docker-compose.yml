@@ -5,23 +5,23 @@ services:
     ports:
       - "4566:4566"
     environment:
-      # kms esta en la lista aunque no haya ningun recurso de KMS en el codigo: la
-      # tabla pide cifrado en reposo y DynamoDB resuelve eso pidiendole una clave a
-      # KMS. Sin el servicio arriba, CreateTable crea la tabla y despues devuelve 500,
-      # el proveedor reintenta y el segundo intento falla con ResourceInUseException.
+      # kms is on the list even though the code has no KMS resource: the table asks
+      # for encryption at rest and DynamoDB handles that by requesting a key from KMS.
+      # Without the service running, CreateTable creates the table and then returns 500,
+      # the provider retries and the second attempt fails with ResourceInUseException.
       SERVICES: events,sqs,lambda,dynamodb,sns,iam,logs,cloudwatch,sts,kms
-      # Las URL de cola por defecto usan el dominio localhost.localstack.cloud, que
-      # obliga a una resolucion DNS externa por cada operacion. En un entorno sin
-      # salida a internet eso son 25 segundos de timeout por llamada.
+      # Default queue URLs use the localhost.localstack.cloud domain, which forces an
+      # external DNS lookup on every operation. In an environment without internet
+      # access that means a 25-second timeout per call.
       SQS_ENDPOINT_STRATEGY: "off"
       DEBUG: "0"
-      # LocalStack no ejecuta la funcion en su propio proceso: por cada invocacion lanza
-      # un contenedor con la imagen del runtime. Este valor es cuanto lo mantiene vivo
-      # despues de terminar, para que la segunda invocacion no vuelva a pagar el arranque.
+      # LocalStack does not run the function in its own process: each invocation starts
+      # a container with the runtime image. This value is how long it is kept alive
+      # afterwards, so the second invocation does not pay the startup cost again.
       LAMBDA_RUNTIME_ENVIRONMENT_TIMEOUT: "120"
     volumes:
-      # Consecuencia de lo anterior: necesita hablar con el demonio de Docker del host
-      # para poder crear esos contenedores. Sin este montaje, toda invocacion falla.
+      # Consequence of the above: it needs to talk to the host's Docker daemon to create
+      # those containers. Without this mount, every invocation fails.
       - "/var/run/docker.sock:/var/run/docker.sock"
     healthcheck:
       test:

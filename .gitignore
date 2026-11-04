@@ -1,5 +1,5 @@
-# Estado de Terraform: nunca se versiona. Contiene valores resueltos de todos los
-# recursos y en un backend real seria informacion sensible.
+# Terraform state: never committed. It holds resolved values for every resource
+# and in a real backend it would be sensitive information.
 *.tfstate
 *.tfstate.*
 *.tfstate.backup
@@ -8,12 +8,12 @@
 crash.log
 crash.*.log
 
-# Artefacto que genera archive_file en cada apply.
+# Artifact that archive_file generates on every apply.
 terraform/.build/
 *.zip
 
-# Los tfvars del repo estan versionados a proposito (no traen secretos).
-# Cualquier otro queda fuera.
+# The repo's tfvars are committed on purpose (they hold no secrets).
+# Anything else stays out.
 *.auto.tfvars
 terraform/*.tfvars
 !terraform/environments/*.tfvars
@@ -28,13 +28,13 @@ venv/
 .coverage
 htmlcov/
 
-# Las notas de trabajo en markdown quedan fuera del repositorio; el README es la
-# excepcion.
+# Markdown working notes stay out of the repository; the README is the
+# exception.
 *.md
 !README.md
 importante.txt
 
-# Sistema operativo y editores
+# Operating system and editors
 Thumbs.db
 Desktop.ini
 .DS_Store

@@ -3,9 +3,9 @@ locals {
 
   function_name = "${local.name_prefix}-processor"
 
-  # El nombre del log group de una funcion no es configurable: Lambda escribe siempre en
-  # /aws/lambda/<nombre>. Se declara aca porque lo necesitan tanto la politica del rol
-  # como el recurso del log group, y son archivos distintos.
+  # A function's log group name is not configurable: Lambda always writes to
+  # /aws/lambda/<name>. It is declared here because both the role policy and the log
+  # group resource need it, and they live in different files.
   log_group_name = "/aws/lambda/${local.function_name}"
 
   common_tags = {

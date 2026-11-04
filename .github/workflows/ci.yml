@@ -24,10 +24,10 @@ jobs:
         with:
           terraform_version: ${{ env.TERRAFORM_VERSION }}
 
-      - name: formato de terraform
+      - name: terraform format
         run: terraform fmt -check -recursive
 
-      - name: init sin backend
+      - name: init without backend
         working-directory: terraform
         run: terraform init -backend=false -input=false
 
@@ -44,9 +44,9 @@ jobs:
           pip install ruff==0.7.2
           ruff check src/ tests/
 
-      # Se instala la version exacta en vez de usar la action oficial, que resuelve la
-      # ultima disponible: un check nuevo publicado un martes rompe CI sin que nadie haya
-      # tocado el repositorio. El fallo duro es el comportamiento por defecto del CLI.
+      # The exact version is installed instead of using the official action, which resolves
+      # the latest release: a new check published on a Tuesday breaks CI without anyone
+      # touching the repository. Failing hard is the CLI's default behavior.
       - name: checkov
         run: |
           pip install checkov==3.2.334
@@ -61,12 +61,12 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: dependencias de prueba
+      - name: test dependencies
         run: pip install -r tests/requirements.txt
 
-      # No necesita LocalStack ni Terraform, asi que corre en paralelo con lint y deja la
-      # primera evidencia de que algo se rompio en menos de un minuto.
-      - name: pruebas unitarias
+      # Needs neither LocalStack nor Terraform, so it runs in parallel with lint and gives
+      # the first signal that something broke in under a minute.
+      - name: unit tests
         run: pytest tests/test_handler.py -v
 
   integration:
@@ -84,8 +84,8 @@ jobs:
           DEBUG: "0"
           LAMBDA_RUNTIME_ENVIRONMENT_TIMEOUT: "120"
         volumes:
-          # LocalStack ejecuta cada invocacion de la funcion como un contenedor aparte,
-          # asi que necesita el demonio de Docker del runner.
+          # LocalStack runs each function invocation as a separate container,
+          # so it needs the runner's Docker daemon.
           - /var/run/docker.sock:/var/run/docker.sock
         options: >-
           --health-cmd "curl -sf http://localhost:4566/_localstack/health || exit 1"
@@ -106,7 +106,7 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: dependencias de prueba
+      - name: test dependencies
         run: pip install -r tests/requirements.txt
 
       - name: init
@@ -117,11 +117,11 @@ jobs:
         working-directory: terraform
         run: terraform apply -auto-approve -input=false -var-file=${{ env.TFVARS }}
 
-      - name: pruebas de integracion
+      - name: integration tests
         run: pytest tests/test_integration.py -v
 
-      # Siempre, incluso si las pruebas fallan: deja el entorno en el mismo estado en el
-      # que lo encontro y verifica de paso que el destroy funciona.
+      # Always, even if the tests fail: leaves the environment as it found it and checks
+      # along the way that destroy works.
       - name: destroy
         if: always()
         working-directory: terraform
@@ -132,8 +132,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # Gitleaks revisa el historial completo, no el arbol de trabajo: una credencial
-          # borrada en un commit posterior sigue estando en el repositorio.
+          # Gitleaks scans the full history, not the working tree: a credential deleted
+          # in a later commit is still in the repository.
           fetch-depth: 0
 
       - name: gitleaks

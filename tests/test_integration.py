@@ -4,13 +4,13 @@ from uuid import uuid4
 
 from boto3.dynamodb.conditions import Key
 
-# Margen para demostrar que algo NO pasa. Esperar a que aparezca un item admite reintentos;
-# comprobar que no aparece un segundo item obliga a fijar una ventana y aguantarla.
-VENTANA_DE_REPOSO = 20
+# Margin to prove that something does NOT happen. Waiting for an item to appear allows
+# retries; proving that a second item never appears requires a fixed window held open.
+QUIET_WINDOW = 20
 
 
-def publicar(eventos, outputs, detail, detail_type="order.placed"):
-    respuesta = eventos.put_events(
+def publish(events, outputs, detail, detail_type="order.placed"):
+    response = events.put_events(
         Entries=[
             {
                 "EventBusName": outputs["event_bus_name"],
@@ -21,12 +21,12 @@ def publicar(eventos, outputs, detail, detail_type="order.placed"):
         ]
     )
 
-    assert respuesta["FailedEntryCount"] == 0
+    assert response["FailedEntryCount"] == 0
 
-    return respuesta
+    return response
 
 
-def pedido(**overrides):
+def order(**overrides):
     base = {
         "orderId": f"ord-{uuid4().hex[:10]}",
         "createdAt": "2026-03-01T09:30:00+00:00",
@@ -38,8 +38,8 @@ def pedido(**overrides):
     return base
 
 
-def mensajes_visibles(sqs, url):
-    atributos = sqs.get_queue_attributes(
+def visible_messages(sqs, url):
+    attributes = sqs.get_queue_attributes(
         QueueUrl=url,
         AttributeNames=[
             "ApproximateNumberOfMessages",
@@ -47,67 +47,67 @@ def mensajes_visibles(sqs, url):
         ],
     )["Attributes"]
 
-    return int(atributos["ApproximateNumberOfMessages"]) + int(
-        atributos["ApproximateNumberOfMessagesNotVisible"]
+    return int(attributes["ApproximateNumberOfMessages"]) + int(
+        attributes["ApproximateNumberOfMessagesNotVisible"]
     )
 
 
-def test_camino_feliz(eventos, dynamodb, outputs, wait_until):
-    evento = pedido()
-    publicar(eventos, outputs, evento)
+def test_happy_path(events, dynamodb, outputs, wait_until):
+    event = order()
+    publish(events, outputs, event)
 
-    tabla = dynamodb.Table(outputs["table_name"])
+    table = dynamodb.Table(outputs["table_name"])
 
     item = wait_until(
-        lambda: tabla.get_item(
-            Key={"orderId": evento["orderId"], "createdAt": evento["createdAt"]}
+        lambda: table.get_item(
+            Key={"orderId": event["orderId"], "createdAt": event["createdAt"]}
         ).get("Item"),
         timeout=180,
-        descripcion="que el pedido aparezca en dynamodb",
+        description="the order to appear in dynamodb",
     )
 
-    assert item["customerId"] == evento["customerId"]
-    assert float(item["amount"]) == evento["amount"]
+    assert item["customerId"] == event["customerId"]
+    assert float(item["amount"]) == event["amount"]
     assert int(item["expiresAt"]) > time.time()
 
 
-def test_reentrega_no_duplica_el_pedido(eventos, dynamodb, outputs, wait_until):
-    evento = pedido()
-    tabla = dynamodb.Table(outputs["table_name"])
+def test_redelivery_does_not_duplicate_the_order(events, dynamodb, outputs, wait_until):
+    event = order()
+    table = dynamodb.Table(outputs["table_name"])
 
-    def items_del_pedido():
-        return tabla.query(KeyConditionExpression=Key("orderId").eq(evento["orderId"]))["Items"]
+    def order_items():
+        return table.query(KeyConditionExpression=Key("orderId").eq(event["orderId"]))["Items"]
 
-    publicar(eventos, outputs, evento)
-    publicar(eventos, outputs, evento)
+    publish(events, outputs, event)
+    publish(events, outputs, event)
 
-    wait_until(items_del_pedido, timeout=180, descripcion="que el pedido se escriba")
+    wait_until(order_items, timeout=180, description="the order to be written")
 
-    # La segunda escritura pudo llegar despues de la primera lectura, asi que se deja
-    # pasar la ventana completa antes de contar.
-    time.sleep(VENTANA_DE_REPOSO)
+    # The second write may arrive after the first read, so the full window is allowed to
+    # pass before counting.
+    time.sleep(QUIET_WINDOW)
 
-    assert len(items_del_pedido()) == 1
+    assert len(order_items()) == 1
 
 
-def test_importe_negativo_termina_en_la_dlq(eventos, sqs, outputs, wait_until):
-    publicar(eventos, outputs, pedido(amount=-42.0))
+def test_negative_amount_ends_up_in_the_dlq(events, sqs, outputs, wait_until):
+    publish(events, outputs, order(amount=-42.0))
 
-    # Timeout generoso: son tres entregas, y entre una y otra el mensaje queda invisible
-    # durante el visibility timeout completo de la cola.
+    # Generous timeout: there are three deliveries, and between each one the message stays
+    # invisible for the queue's full visibility timeout.
     wait_until(
-        lambda: mensajes_visibles(sqs, outputs["dlq_url"]) >= 1,
+        lambda: visible_messages(sqs, outputs["dlq_url"]) >= 1,
         timeout=300,
-        intervalo=5,
-        descripcion="que el mensaje envenenado caiga en la dlq",
+        interval=5,
+        description="the poison message to land in the dlq",
     )
 
 
-def test_la_regla_descarta_otros_tipos_de_evento(eventos, sqs, outputs):
+def test_rule_drops_other_event_types(events, sqs, outputs):
     sqs.purge_queue(QueueUrl=outputs["queue_url"])
-    time.sleep(VENTANA_DE_REPOSO)
+    time.sleep(QUIET_WINDOW)
 
-    publicar(eventos, outputs, pedido(), detail_type="order.cancelled")
-    time.sleep(VENTANA_DE_REPOSO)
+    publish(events, outputs, order(), detail_type="order.cancelled")
+    time.sleep(QUIET_WINDOW)
 
-    assert mensajes_visibles(sqs, outputs["queue_url"]) == 0
+    assert visible_messages(sqs, outputs["queue_url"]) == 0

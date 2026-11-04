@@ -1,10 +1,10 @@
-# La alarma va sobre la profundiad de la DLQ y no sobre los errores de la funcion. Un
-# error aislado que el reintento resuelve no es un incidente y despertar a alguien por
-# eso entrena al equipo a ignorar las alarmas. Un mensaje en la DLQ si lo es: significa
-# que los tres reintentos ya se agotaron y ese pedido no se proceso.
-resource "aws_cloudwatch_metric_alarm" "dlq_con_mensajes" {
-  alarm_name        = "${local.name_prefix}-dlq-con-mensajes"
-  alarm_description = "Hay mensajes en la DLQ: se agotaron los reintentos de al menos un pedido."
+# The alarm watches the DLQ depth, not the function's errors. An isolated error that a
+# retry fixes is not an incident, and waking someone up for it trains the team to ignore
+# alarms. A message in the DLQ is one: it means all three retries are exhausted and that
+# order was not processed.
+resource "aws_cloudwatch_metric_alarm" "dlq_has_messages" {
+  alarm_name        = "${local.name_prefix}-dlq-has-messages"
+  alarm_description = "There are messages in the DLQ: retries ran out for at least one order."
 
   namespace   = "AWS/SQS"
   metric_name = "ApproximateNumberOfMessagesVisible"
@@ -19,20 +19,20 @@ resource "aws_cloudwatch_metric_alarm" "dlq_con_mensajes" {
   threshold           = var.dlq_alarm_threshold
   comparison_operator = "GreaterThanOrEqualToThreshold"
 
-  # SQS no publica la metrica cuando la cola esta vacia. Con el default, la alarma se
-  # quedaria en INSUFFICIENT_DATA justo en el estado sano, que es el mas frecuente.
+  # SQS does not publish the metric while the queue is empty. With the default, the alarm
+  # would sit in INSUFFICIENT_DATA precisely in the healthy state, which is the most common one.
   treat_missing_data = "notBreaching"
 
   alarm_actions = [aws_sns_topic.alerts.arn]
   ok_actions    = [aws_sns_topic.alerts.arn]
 }
 
-# Complementaria y deliberadamente menos sensible: cinco errores en cinco minutos,
-# sostenidos durante dos ventanas. Detecta que algo esta roto de forma sistematica
-# antes de que la DLQ se llene, sin disparar por un throttling puntual.
-resource "aws_cloudwatch_metric_alarm" "errores_de_la_funcion" {
-  alarm_name        = "${local.name_prefix}-errores-lambda"
-  alarm_description = "La funcion procesadora acumula errores durante dos ventanas seguidas."
+# Complementary and deliberately less sensitive: five errors in five minutes, sustained
+# over two windows. It catches something systematically broken before the DLQ fills up,
+# without firing on a one-off throttle.
+resource "aws_cloudwatch_metric_alarm" "function_errors" {
+  alarm_name        = "${local.name_prefix}-lambda-errors"
+  alarm_description = "The processor function keeps erroring over two consecutive windows."
 
   namespace   = "AWS/Lambda"
   metric_name = "Errors"

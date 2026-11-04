@@ -1,28 +1,28 @@
 # terraform-localstack-pipeline
 
-Pipeline de eventos de pedidos (EventBridge → SQS → Lambda → DynamoDB) definido con Terraform y probado de punta a punta contra LocalStack, sin cuenta de AWS.
+Order event pipeline (EventBridge → SQS → Lambda → DynamoDB) defined with Terraform and tested end to end against LocalStack, with no AWS account.
 
-![Arquitectura](docs/arquitectura.svg)
+![Architecture](docs/architecture.svg)
 
-## Correrlo
+## Run it
 
-Requiere Docker, Terraform ≥ 1.9 y Python 3.12.
+Requires Docker, Terraform ≥ 1.9 and Python 3.12.
 
 ```bash
 pip install -r tests/requirements.txt
 make
 ```
 
-`make` levanta LocalStack, aplica Terraform, corre los tests y destruye todo. Por pasos: `make up init apply test`, y al final `make destroy down`.
+`make` starts LocalStack, applies Terraform, runs the tests and destroys everything. Step by step: `make up init apply test`, and at the end `make destroy down`.
 
-## Decisiones
+## Design decisions
 
-- **DLQ tras 3 fallos, alarma sobre la DLQ.** Un error que el reintento resuelve no es un incidente; un mensaje en la DLQ sí.
-- **Idempotente.** SQS entrega al menos una vez; un `PutItem` condicional evita contar un pedido dos veces.
-- **Fallos parciales.** Con `ReportBatchItemFailures` vuelve a la cola solo el mensaje malo, no el lote.
-- **IAM mínimo.** Un rol por función, sin comodines.
-- **Un solo Terraform** para LocalStack y AWS (`use_localstack`), con `tfvars` por entorno. Solo se ejecutó contra LocalStack.
+- **DLQ after 3 failures, alarm on the DLQ.** An error that a retry fixes is not an incident; a message in the DLQ is.
+- **Idempotent.** SQS delivers at least once; a conditional `PutItem` keeps an order from being counted twice.
+- **Partial failures.** With `ReportBatchItemFailures` only the bad message goes back to the queue, not the whole batch.
+- **Least-privilege IAM.** One role per function, no wildcards.
+- **One Terraform codebase** for LocalStack and AWS (`use_localstack`), with per-environment `tfvars`. It has only been run against LocalStack.
 
 ## CI
 
-Lint (`fmt`, `validate`, ruff, checkov), tests unitarios, integración contra LocalStack, gitleaks y trivy.
+Lint (`fmt`, `validate`, ruff, checkov), unit tests, integration tests against LocalStack, gitleaks and trivy.

@@ -1,13 +1,13 @@
-# Bus propio en lugar del bus default: el default lo comparte toda la cuenta y recibe
-# ademas los eventos de los servicios de AWS, de modo que una regla mal escrita ahi
-# afecta a terceros. Un bus dedicado se puede borrar entero sin consecuencias.
+# A dedicated bus instead of the default one: the default bus is shared by the whole
+# account and also receives AWS service events, so a badly written rule there affects
+# others. A dedicated bus can be deleted entirely with no side effects.
 resource "aws_cloudwatch_event_bus" "orders" {
   name = "${local.name_prefix}-bus"
 }
 
 resource "aws_cloudwatch_event_rule" "order_placed" {
   name           = "${local.name_prefix}-order-placed"
-  description    = "Deriva a la cola de proceso unicamente los eventos de pedido creado."
+  description    = "Routes only order-placed events to the processing queue."
   event_bus_name = aws_cloudwatch_event_bus.orders.name
 
   event_pattern = jsonencode({
@@ -25,20 +25,20 @@ resource "aws_cloudwatch_event_target" "to_queue" {
 resource "aws_sqs_queue" "process" {
   name = "${local.name_prefix}-process"
 
-  # Seis veces el timeout de la funcion, que es la relacion que recomienda AWS para dar
-  # margen a los reintentos del event source mapping. Si fuera menor, un mensaje todavia
-  # en proceso volveria a hacerse visible y una segunda invocacion lo tomaria en paralelo.
+  # Six times the function timeout, the ratio AWS recommends to leave room for the event
+  # source mapping's retries. If it were lower, a message still being processed would
+  # become visible again and a second invocation would pick it up in parallel.
   visibility_timeout_seconds = var.lambda_timeout_seconds * 6
 
-  # Cuatro dias. Cubre un fin de semana largo con la funcion caida sin perder eventos.
+  # Four days. Covers a long weekend with the function down without losing events.
   message_retention_seconds = 345600
 
   sqs_managed_sse_enabled = true
 
   redrive_policy = jsonencode({
     deadLetterTargetArn = aws_sqs_queue.dlq.arn
-    # Tres entregas fallidas y el mensaje sale de la cola. Sin esto, un unico mensaje
-    # envenenado se reintenta para siempre y frena al resto de la particion.
+    # Three failed deliveries and the message leaves the queue. Without this, a single
+    # poison message is retried forever and holds up the rest of the partition.
     maxReceiveCount = 3
   })
 }
@@ -46,19 +46,19 @@ resource "aws_sqs_queue" "process" {
 resource "aws_sqs_queue" "dlq" {
   name = "${local.name_prefix}-dlq"
 
-  # Catorce dias, el maximo. Lo que cae aca se inspecciona a mano y esa ventana tiene que
-  # aguantar vacaciones de quien esta de guardia.
+  # Fourteen days, the maximum. Whatever lands here is inspected by hand, and that window
+  # has to survive the on-call person's vacation.
   message_retention_seconds = 1209600
 
   sqs_managed_sse_enabled = true
 }
 
-# EventBridge entrega a la cola con su propia identidad de servicio, no con un rol.
-# La condicion sobre SourceArn evita el problema del confused deputy: sin ella,
-# cualquier regla de cualquier cuenta podria escribir en esta cola.
+# EventBridge delivers to the queue with its own service identity, not with a role.
+# The SourceArn condition prevents the confused deputy problem: without it, any rule in
+# any account could write to this queue.
 data "aws_iam_policy_document" "process_queue" {
   statement {
-    sid    = "PermiteEnvioDesdeLaReglaDeEventBridge"
+    sid    = "AllowSendFromEventBridgeRule"
     effect = "Allow"
 
     principals {
@@ -85,15 +85,15 @@ resource "aws_sqs_queue_policy" "process" {
 resource "aws_sns_topic" "alerts" {
   name = "${local.name_prefix}-alerts"
 
-  # LocalStack community no expone las claves administradas por AWS, asi que el cifrado
-  # con KMS solo se pide contra la nube real. El contenido de estas alertas es el nombre
-  # de una cola y un contador, no datos de cliente.
+  # LocalStack community does not expose AWS managed keys, so KMS encryption is only
+  # requested against the real cloud. These alerts contain a queue name and a counter,
+  # not customer data.
   kms_master_key_id = var.use_localstack ? null : "alias/aws/sns"
 }
 
-# La confirmacion de una suscripcion por email es manual: AWS manda un correo y la
-# suscripcion queda en estado pending hasta que alguien lo abre. Por eso el default es
-# vacio y no se crea nada si nadie declaro un destinatario.
+# Confirming an email subscription is manual: AWS sends an email and the subscription
+# stays pending until someone opens it. That is why the default is empty and nothing is
+# created unless a recipient is declared.
 resource "aws_sns_topic_subscription" "alerts_email" {
   count = var.alert_email != "" ? 1 : 0
 

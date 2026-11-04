@@ -8,12 +8,12 @@ from decimal import Decimal
 import boto3
 from botocore.exceptions import ClientError
 
-DIAS_DE_RETENCION = 90
-SEGUNDOS_POR_DIA = 86400
+RETENTION_DAYS = 90
+SECONDS_PER_DAY = 86400
 
 
 class ValidationError(Exception):
-    """Mensaje que ningun reintento va a arreglar: se descarta hacia la DLQ."""
+    """A message no retry will ever fix: it is dropped toward the DLQ."""
 
 
 class JsonFormatter(logging.Formatter):
@@ -23,9 +23,9 @@ class JsonFormatter(logging.Formatter):
             "message": record.getMessage(),
         }
 
-        contexto = getattr(record, "context", None)
-        if contexto is not None:
-            payload["context"] = contexto
+        context = getattr(record, "context", None)
+        if context is not None:
+            payload["context"] = context
 
         if record.exc_info:
             payload["error"] = self.formatException(record.exc_info)
@@ -33,105 +33,104 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, ensure_ascii=False)
 
 
-def _armar_logger():
+def _build_logger():
     logger = logging.getLogger("processor")
     logger.setLevel(os.environ.get("LOG_LEVEL", "INFO").upper())
 
-    # El runtime de Lambda instala su propio handler en el logger raiz con formato de
-    # texto plano. Sin propagate en False cada linea sale dos veces, una en JSON y otra no.
-    salida = logging.StreamHandler()
-    salida.setFormatter(JsonFormatter())
-    logger.handlers = [salida]
+    # The Lambda runtime installs its own plain-text handler on the root logger.
+    # Without propagate set to False every line is emitted twice, once as JSON and once not.
+    output = logging.StreamHandler()
+    output.setFormatter(JsonFormatter())
+    logger.handlers = [output]
     logger.propagate = False
 
     return logger
 
 
-log = _armar_logger()
+log = _build_logger()
 
-_tabla = None
+_table = None
 
 
 def get_table():
-    # Perezoso y cacheado: el recurso sobrevive entre invocaciones del mismo contenedor,
-    # asi que el costo de construirlo se paga una vez por arranque en frio y no en cada
-    # mensaje. Construirlo al importar el modulo obligaria a tener credenciales validas
-    # para poder importar el archivo en las pruebas unitarias.
-    global _tabla
+    # Lazy and cached: the resource survives between invocations of the same container,
+    # so building it costs once per cold start instead of once per message. Building it
+    # at import time would require valid credentials just to import the file in unit tests.
+    global _table
 
-    if _tabla is None:
-        _tabla = boto3.resource("dynamodb").Table(os.environ["TABLE_NAME"])
+    if _table is None:
+        _table = boto3.resource("dynamodb").Table(os.environ["TABLE_NAME"])
 
-    return _tabla
+    return _table
 
 
 def parse_record(record):
     try:
-        cuerpo = json.loads(record["body"])
+        body = json.loads(record["body"])
     except (KeyError, TypeError, ValueError) as exc:
-        raise ValidationError("el cuerpo del mensage no es JSON valido") from exc
+        raise ValidationError("the message body is not valid JSON") from exc
 
-    detail = cuerpo.get("detail")
+    detail = body.get("detail")
 
     if not isinstance(detail, dict):
-        raise ValidationError("el evento no trae un detail de tipo objeto")
+        raise ValidationError("the event has no object-typed detail")
 
     return detail
 
 
 def validate(detail):
-    for campo in ("orderId", "customerId"):
-        valor = detail.get(campo)
+    for field in ("orderId", "customerId"):
+        value = detail.get(field)
 
-        if not isinstance(valor, str) or not valor.strip():
-            raise ValidationError(f"falta el campo obligatorio {campo}")
+        if not isinstance(value, str) or not value.strip():
+            raise ValidationError(f"missing required field {field}")
 
     try:
         amount = float(detail["amount"])
     except (KeyError, TypeError, ValueError) as exc:
-        raise ValidationError("amount no es un numero") from exc
+        raise ValidationError("amount is not a number") from exc
 
-    # Un importe negativo no es un error transitorio, pero tampoco algo que se pueda
-    # ignorar en silencio: es el caso que empuja el mensaje hasta la DLQ y dispara la
-    # alarma para que alguien mire de donde salio.
+    # A negative amount is not a transient error, but it is not something to ignore
+    # silently either: it is the case that pushes the message into the DLQ and fires the
+    # alarm so someone looks at where it came from.
     if amount < 0:
-        raise ValidationError("amount negativo")
+        raise ValidationError("negative amount")
 
     return amount
 
 
 def store(detail, amount):
-    ahora = int(time.time())
+    now = int(time.time())
 
     item = {
         "orderId": detail["orderId"],
-        # createdAt forma parte de la clave. Si el productor no lo manda, cada reentrega
-        # genera una clave distinta y la escritura condicional deja de ser idempotente.
-        "createdAt": detail.get("createdAt") or datetime.fromtimestamp(ahora, UTC).isoformat(),
+        # createdAt is part of the key. If the producer does not send it, every redelivery
+        # generates a different key and the conditional write is no longer idempotent.
+        "createdAt": detail.get("createdAt") or datetime.fromtimestamp(now, UTC).isoformat(),
         "customerId": detail["customerId"],
-        # DynamoDB no acepta float: pierde precision al serializar. Decimal sobre la
-        # representacion en texto conserva exactamente lo que llego en el evento.
+        # DynamoDB does not accept float: it loses precision when serializing. A Decimal
+        # built from the string representation keeps exactly what arrived in the event.
         "amount": Decimal(str(amount)),
-        "expiresAt": ahora + DIAS_DE_RETENCION * SEGUNDOS_POR_DIA,
+        "expiresAt": now + RETENTION_DAYS * SECONDS_PER_DAY,
     }
 
     try:
         get_table().put_item(
             Item=item,
-            # SQS entrega al menos una vez. Sin esta condicion, un reintento del mismo
-            # mensaje pisaria el item original y contaria el pedido dos veces.
+            # SQS delivers at least once. Without this condition, a retry of the same
+            # message would overwrite the original item and count the order twice.
             ConditionExpression="attribute_not_exists(orderId)",
         )
     except ClientError as exc:
         if exc.response["Error"]["Code"] == "ConditionalCheckFailedException":
-            return "duplicado"
+            return "duplicate"
         raise
 
-    return "creado"
+    return "created"
 
 
 def handler(event, context):
-    fallidos = []
+    failures = []
 
     for record in event.get("Records", []):
         message_id = record.get("messageId")
@@ -139,33 +138,33 @@ def handler(event, context):
         try:
             detail = parse_record(record)
             amount = validate(detail)
-            resultado = store(detail, amount)
+            result = store(detail, amount)
         except ValidationError as exc:
-            # Se loguea el motivo y el identificador, nunca el evento completo: el detail
-            # trae datos del cliente y los logs se retienen y se comparten.
+            # Log the reason and the identifier, never the full event: the detail carries
+            # customer data and logs are retained and shared.
             log.warning(
-                "mensaje invalido",
-                extra={"context": {"messageId": message_id, "motivo": str(exc)}},
+                "invalid message",
+                extra={"context": {"messageId": message_id, "reason": str(exc)}},
             )
-            fallidos.append({"itemIdentifier": message_id})
+            failures.append({"itemIdentifier": message_id})
         except Exception:
             log.exception(
-                "fallo inesperado al procesar el mensaje",
+                "unexpected failure while processing the message",
                 extra={"context": {"messageId": message_id}},
             )
-            fallidos.append({"itemIdentifier": message_id})
+            failures.append({"itemIdentifier": message_id})
         else:
             log.info(
-                "pedido procesado",
+                "order processed",
                 extra={
                     "context": {
                         "messageId": message_id,
                         "orderId": detail["orderId"],
-                        "resultado": resultado,
+                        "result": result,
                     }
                 },
             )
 
-    # ReportBatchItemFailures: solo los identificadores devueltos vuelven a la cola. Sin
-    # esto, un unico mensaje malo obliga a reprocesar el lote entero.
-    return {"batchItemFailures": fallidos}
+    # ReportBatchItemFailures: only the returned identifiers go back to the queue. Without
+    # this, a single bad message forces the whole batch to be reprocessed.
+    return {"batchItemFailures": failures}

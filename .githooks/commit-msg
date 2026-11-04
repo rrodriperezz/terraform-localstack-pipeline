@@ -1,4 +1,4 @@
 #!/bin/sh
-# El historial documenta el cambio, no la herramienta con la que se escribio. Los
-# trailers de atribucion se agregan solos y ensucian git log sin aportar nada.
+# History documents the change, not the tool it was written with. Attribution
+# trailers get added automatically and clutter git log without adding anything.
 sed -i -E '/^(Co-Authored-By|Co-authored-by):/d; /Generated with/d' "$1"

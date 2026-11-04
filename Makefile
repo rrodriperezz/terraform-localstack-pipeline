@@ -11,21 +11,21 @@ ENDPOINT ?= http://localhost:4566
 .PHONY: all up init apply test destroy down fmt validate clean
 .DEFAULT_GOAL := all
 
-# Ciclo completo desde cero y vuelta a cero. Es lo que corre CI y lo que tiene que
-# terminar en verde en una maquina limpia.
+# Full cycle from zero and back to zero. It is what CI runs and what has to
+# finish green on a clean machine.
 all: up init apply test destroy down
 
 up:
 	$(COMPOSE) up -d
-	@echo "esperando el healtcheck de localstack"
-	@for intento in $$(seq 1 60); do \
+	@echo "waiting for the localstack healthcheck"
+	@for attempt in $$(seq 1 60); do \
 		if curl -sf $(ENDPOINT)/_localstack/health >/dev/null 2>&1; then \
-			echo "localstack responde en $(ENDPOINT)"; \
+			echo "localstack is up at $(ENDPOINT)"; \
 			exit 0; \
 		fi; \
 		sleep 2; \
 	done; \
-	echo "localstack no llego a estado sano"; \
+	echo "localstack never became healthy"; \
 	$(COMPOSE) logs --tail 50 localstack; \
 	exit 1
 
@@ -54,7 +54,7 @@ validate:
 	$(TERRAFORM) -chdir=$(TFDIR) validate
 	$(PYTHON) -m ruff check src tests
 
-# No toca el estado ni los contenedores: solo lo que se puede regenerar sin costo.
+# Does not touch state or containers: only what can be regenerated at no cost.
 clean:
 	rm -rf $(TFDIR)/.build
 	rm -rf .pytest_cache .ruff_cache

@@ -14,7 +14,7 @@ def sqs_record(detail, message_id="msg-1", detail_type="order.placed", body=None
     return {"messageId": message_id, "body": body}
 
 
-def pedido(**overrides):
+def order(**overrides):
     base = {
         "orderId": "ord-001",
         "createdAt": "2026-01-15T10:00:00+00:00",
@@ -27,87 +27,88 @@ def pedido(**overrides):
 
 
 @pytest.fixture
-def tabla():
-    doble = MagicMock()
+def table():
+    fake = MagicMock()
 
-    with patch.object(handler, "get_table", return_value=doble):
-        yield doble
-
-
-def test_evento_valido_escribe_una_vez(tabla):
-    resultado = handler.handler({"Records": [sqs_record(pedido())]}, None)
-
-    assert resultado == {"batchItemFailures": []}
-    assert tabla.put_item.call_count == 1
-
-    argumentos = tabla.put_item.call_args.kwargs
-    assert argumentos["Item"]["orderId"] == "ord-001"
-    assert argumentos["ConditionExpression"] == "attribute_not_exists(orderId)"
+    with patch.object(handler, "get_table", return_value=fake):
+        yield fake
 
 
-def test_falta_customer_id(tabla):
-    detail = pedido()
+def test_valid_event_writes_once(table):
+    result = handler.handler({"Records": [sqs_record(order())]}, None)
+
+    assert result == {"batchItemFailures": []}
+    assert table.put_item.call_count == 1
+
+    kwargs = table.put_item.call_args.kwargs
+    assert kwargs["Item"]["orderId"] == "ord-001"
+    assert kwargs["ConditionExpression"] == "attribute_not_exists(orderId)"
+
+
+def test_missing_customer_id(table):
+    detail = order()
     del detail["customerId"]
 
-    resultado = handler.handler({"Records": [sqs_record(detail, "msg-sin-cliente")]}, None)
+    result = handler.handler({"Records": [sqs_record(detail, "msg-no-customer")]}, None)
 
-    assert resultado == {"batchItemFailures": [{"itemIdentifier": "msg-sin-cliente"}]}
-    tabla.put_item.assert_not_called()
+    assert result == {"batchItemFailures": [{"itemIdentifier": "msg-no-customer"}]}
+    table.put_item.assert_not_called()
 
 
-def test_importe_negativo(tabla):
-    resultado = handler.handler(
-        {"Records": [sqs_record(pedido(amount=-1), "msg-negativo")]},
+def test_negative_amount(table):
+    result = handler.handler(
+        {"Records": [sqs_record(order(amount=-1), "msg-negative")]},
         None,
     )
 
-    assert resultado == {"batchItemFailures": [{"itemIdentifier": "msg-negativo"}]}
-    tabla.put_item.assert_not_called()
+    assert result == {"batchItemFailures": [{"itemIdentifier": "msg-negative"}]}
+    table.put_item.assert_not_called()
 
 
-def test_importe_no_numerico(tabla):
-    resultado = handler.handler(
-        {"Records": [sqs_record(pedido(amount="ciento cuarenta"), "msg-texto")]},
+def test_non_numeric_amount(table):
+    result = handler.handler(
+        {"Records": [sqs_record(order(amount="one hundred forty"), "msg-text")]},
         None,
     )
 
-    assert resultado == {"batchItemFailures": [{"itemIdentifier": "msg-texto"}]}
-    tabla.put_item.assert_not_called()
+    assert result == {"batchItemFailures": [{"itemIdentifier": "msg-text"}]}
+    table.put_item.assert_not_called()
 
 
-def test_cuerpo_que_no_es_json(tabla):
-    record = sqs_record(None, "msg-roto", body="esto no es json")
+def test_body_that_is_not_json(table):
+    record = sqs_record(None, "msg-broken", body="this is not json")
 
-    resultado = handler.handler({"Records": [record]}, None)
+    result = handler.handler({"Records": [record]}, None)
 
-    assert resultado == {"batchItemFailures": [{"itemIdentifier": "msg-roto"}]}
-    tabla.put_item.assert_not_called()
+    assert result == {"batchItemFailures": [{"itemIdentifier": "msg-broken"}]}
+    table.put_item.assert_not_called()
 
 
-def test_duplicado_no_es_fallo(tabla):
-    tabla.put_item.side_effect = ClientError(
-        {"Error": {"Code": "ConditionalCheckFailedException", "Message": "ya existe"}},
+def test_duplicate_is_not_a_failure(table):
+    table.put_item.side_effect = ClientError(
+        {"Error": {"Code": "ConditionalCheckFailedException", "Message": "already exists"}},
         "PutItem",
     )
 
-    resultado = handler.handler({"Records": [sqs_record(pedido(), "msg-repetido")]}, None)
+    result = handler.handler({"Records": [sqs_record(order(), "msg-repeated")]}, None)
 
-    # La condicion falla porque el item ya estaba: el reprocesamento es correcto y el
-    # mensaje se da por consumido. Devolverlo como fallo lo mandaria a la DLQ sin motivo.
-    assert resultado == {"batchItemFailures": []}
+    # The condition fails because the item was already there: reprocessing is correct and
+    # the message counts as consumed. Reporting it as a failure would send it to the DLQ
+    # for no reason.
+    assert result == {"batchItemFailures": []}
 
 
-def test_lote_con_un_fallo_en_el_medio(tabla):
+def test_batch_with_one_failure_in_the_middle(table):
     records = [
-        sqs_record(pedido(orderId="ord-001"), "msg-a"),
-        sqs_record(pedido(orderId="ord-002", amount=-5), "msg-b"),
-        sqs_record(pedido(orderId="ord-003"), "msg-c"),
+        sqs_record(order(orderId="ord-001"), "msg-a"),
+        sqs_record(order(orderId="ord-002", amount=-5), "msg-b"),
+        sqs_record(order(orderId="ord-003"), "msg-c"),
     ]
 
-    resultado = handler.handler({"Records": records}, None)
+    result = handler.handler({"Records": records}, None)
 
-    assert resultado == {"batchItemFailures": [{"itemIdentifier": "msg-b"}]}
-    assert tabla.put_item.call_count == 2
+    assert result == {"batchItemFailures": [{"itemIdentifier": "msg-b"}]}
+    assert table.put_item.call_count == 2
 
-    escritos = [llamada.kwargs["Item"]["orderId"] for llamada in tabla.put_item.call_args_list]
-    assert escritos == ["ord-001", "ord-003"]
+    written = [call.kwargs["Item"]["orderId"] for call in table.put_item.call_args_list]
+    assert written == ["ord-001", "ord-003"]
